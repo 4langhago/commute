@@ -12,7 +12,7 @@ export default function StatsView({ saved }) {
   }
 
   const per = saved.map((r) => {
-    const d = estimateDistanceKm(r.origin, r.destination)
+    const d = estimateDistanceKm(r)
     return {
       mode: r.mode,
       distance: d,

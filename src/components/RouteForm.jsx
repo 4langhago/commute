@@ -1,16 +1,32 @@
 import { useState } from 'react'
 import { MapPin, Navigation, ArrowRightLeft } from 'lucide-react'
 import { MODES } from '../modes'
+import AddressInput from './AddressInput'
 
+/**
+ * plan shape: { origin, destination, originCoord, destCoord, mode }
+ * where *Coord = { label, short, lat, lon } | null
+ */
 export default function RouteForm({ onPlan, initial }) {
-  const [origin, setOrigin] = useState(initial?.origin ?? '')
-  const [destination, setDestination] = useState(initial?.destination ?? '')
+  const [origin, setOrigin] = useState(initial?.originCoord ?? null)
+  const [destination, setDestination] = useState(initial?.destCoord ?? null)
   const [mode, setMode] = useState(initial?.mode ?? 'car')
+  const [error, setError] = useState('')
 
   const submit = (e) => {
     e.preventDefault()
-    if (!origin.trim() || !destination.trim()) return
-    onPlan({ origin: origin.trim(), destination: destination.trim(), mode })
+    if (!origin || !destination) {
+      setError('Please pick both addresses from the suggestions.')
+      return
+    }
+    setError('')
+    onPlan({
+      origin: origin.short || origin.label,
+      destination: destination.short || destination.label,
+      originCoord: origin,
+      destCoord: destination,
+      mode
+    })
   }
 
   const swap = () => {
@@ -21,18 +37,13 @@ export default function RouteForm({ onPlan, initial }) {
   return (
     <form onSubmit={submit} className="space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] gap-3 items-end">
-        <div>
-          <label className="block text-xs font-semibold text-slate-500 mb-1">From</label>
-          <div className="relative">
-            <MapPin className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              value={origin}
-              onChange={(e) => setOrigin(e.target.value)}
-              placeholder="e.g. Home"
-              className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500"
-            />
-          </div>
-        </div>
+        <AddressInput
+          label="From"
+          icon={MapPin}
+          placeholder="Search origin..."
+          value={origin}
+          onChange={setOrigin}
+        />
 
         <button
           type="button"
@@ -43,18 +54,13 @@ export default function RouteForm({ onPlan, initial }) {
           <ArrowRightLeft className="w-4 h-4" />
         </button>
 
-        <div>
-          <label className="block text-xs font-semibold text-slate-500 mb-1">To</label>
-          <div className="relative">
-            <Navigation className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              value={destination}
-              onChange={(e) => setDestination(e.target.value)}
-              placeholder="e.g. Office"
-              className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500"
-            />
-          </div>
-        </div>
+        <AddressInput
+          label="To"
+          icon={Navigation}
+          placeholder="Search destination..."
+          value={destination}
+          onChange={setDestination}
+        />
       </div>
 
       <div>
@@ -82,12 +88,22 @@ export default function RouteForm({ onPlan, initial }) {
         </div>
       </div>
 
+      {error && (
+        <div className="text-xs font-medium text-rose-600 bg-rose-50 border border-rose-200 rounded-md px-3 py-2">
+          {error}
+        </div>
+      )}
+
       <button
         type="submit"
         className="tap w-full py-3 rounded-lg bg-indigo-600 text-white font-semibold hover:bg-indigo-700 active:bg-indigo-800 transition shadow-sm"
       >
         Plan route
       </button>
+
+      <p className="text-[11px] text-slate-400 text-center">
+        Addresses powered by OpenStreetMap. Distance estimated via great-circle + road factor.
+      </p>
     </form>
   )
 }

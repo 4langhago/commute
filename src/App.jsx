@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { MapPinned, Bookmark, Inbox } from 'lucide-react'
 import RouteForm from './components/RouteForm'
 import RouteResult from './components/RouteResult'
@@ -6,7 +6,9 @@ import SavedRouteCard from './components/SavedRouteCard'
 import BottomNav from './components/BottomNav'
 import StatsView from './components/StatsView'
 import InstallBanner from './components/InstallBanner'
+import ReminderEditor from './components/ReminderEditor'
 import { haptics } from './lib/haptics'
+import { startReminderScheduler, defaultReminder } from './lib/reminders'
 
 const STORAGE_KEY = 'commute.savedRoutes.v1'
 const TAB_KEY = 'commute.activeTab.v1'
@@ -17,8 +19,11 @@ export default function App() {
   const [saved, setSaved] = useState([])
   const [pendingSave, setPendingSave] = useState(null)
   const [nickname, setNickname] = useState('')
+  const [reminder, setReminder] = useState(defaultReminder())
   const [formSeed, setFormSeed] = useState(0)
   const [toast, setToast] = useState(null)
+  const savedRef = useRef([])
+  savedRef.current = saved
 
   // Load saved
   useEffect(() => {
@@ -45,6 +50,12 @@ export default function App() {
     return () => clearTimeout(id)
   }, [toast])
 
+  // Reminder scheduler (reads latest saved via ref)
+  useEffect(() => {
+    const stop = startReminderScheduler(() => savedRef.current)
+    return stop
+  }, [])
+
   const handlePlan = (p) => {
     haptics.light()
     setPlan(p)
@@ -54,6 +65,7 @@ export default function App() {
     haptics.medium()
     setPendingSave(p)
     setNickname('')
+    setReminder(defaultReminder())
   }
 
   const confirmSave = () => {
@@ -62,13 +74,15 @@ export default function App() {
       id: crypto.randomUUID?.() ?? String(Date.now()),
       nickname: nickname.trim() || `${pendingSave.origin} → ${pendingSave.destination}`,
       ...pendingSave,
+      reminder,
       createdAt: Date.now()
     }
     setSaved((s) => [route, ...s])
     setPendingSave(null)
     setNickname('')
+    setReminder(defaultReminder())
     haptics.success()
-    setToast('Route saved')
+    setToast(reminder.enabled ? 'Route saved · reminder on' : 'Route saved')
   }
 
   const handleDelete = (id) => {
@@ -79,7 +93,13 @@ export default function App() {
 
   const handlePlanAgain = (route) => {
     haptics.light()
-    setPlan({ origin: route.origin, destination: route.destination, mode: route.mode })
+    setPlan({
+      origin: route.origin,
+      destination: route.destination,
+      originCoord: route.originCoord ?? null,
+      destCoord: route.destCoord ?? null,
+      mode: route.mode
+    })
     setFormSeed((n) => n + 1)
     setTab('plan')
   }
@@ -165,7 +185,7 @@ export default function App() {
       {pendingSave && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm grid place-items-end sm:place-items-center p-0 sm:p-4 z-50">
           <div
-            className="w-full sm:max-w-sm rounded-t-2xl sm:rounded-xl bg-white shadow-xl p-5"
+            className="w-full sm:max-w-sm rounded-t-2xl sm:rounded-xl bg-white shadow-xl p-5 max-h-[85vh] overflow-y-auto"
             style={{ paddingBottom: 'calc(1.25rem + var(--safe-bottom))' }}
           >
             <div className="mx-auto sm:hidden w-10 h-1.5 rounded-full bg-slate-200 mb-3" />
@@ -182,6 +202,11 @@ export default function App() {
               className="w-full px-3 py-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500"
               onKeyDown={(e) => e.key === 'Enter' && confirmSave()}
             />
+
+            <div className="mt-4">
+              <ReminderEditor value={reminder} onChange={setReminder} />
+            </div>
+
             <div className="mt-5 flex justify-end gap-2">
               <button
                 onClick={() => { haptics.light(); setPendingSave(null) }}

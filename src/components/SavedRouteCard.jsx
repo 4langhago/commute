@@ -1,11 +1,13 @@
-import { Trash2, Play, ArrowRight } from 'lucide-react'
+import { Trash2, Play, ArrowRight, Bell } from 'lucide-react'
 import { getMode, estimateDistanceKm, estimateMinutes } from '../modes'
+import { describeReminder } from '../lib/reminders'
 
 export default function SavedRouteCard({ route, onDelete, onPlanAgain }) {
   const mode = getMode(route.mode)
   const Icon = mode.icon
-  const distance = estimateDistanceKm(route.origin, route.destination)
+  const distance = estimateDistanceKm(route)
   const mins = estimateMinutes(distance, route.mode)
+  const reminderText = describeReminder(route.reminder)
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm hover:shadow transition">
@@ -25,6 +27,13 @@ export default function SavedRouteCard({ route, onDelete, onPlanAgain }) {
           {mode.label}
         </span>
       </div>
+
+      {reminderText && (
+        <div className="mt-2 inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-indigo-50 text-indigo-700 text-[11px] font-medium">
+          <Bell className="w-3 h-3" />
+          {reminderText}
+        </div>
+      )}
 
       <div className="mt-3 flex items-center justify-between">
         <div className="text-xs text-slate-500">

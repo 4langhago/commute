@@ -10,7 +10,7 @@ export default function RouteResult({ plan, onSave }) {
     )
   }
 
-  const distance = estimateDistanceKm(plan.origin, plan.destination)
+  const distance = estimateDistanceKm(plan)
   const selected = getMode(plan.mode)
   const SelIcon = selected.icon
   const mins = estimateMinutes(distance, plan.mode)
@@ -44,7 +44,8 @@ export default function RouteResult({ plan, onSave }) {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           {MODES.map((m) => {
             const Icon = m.icon
-            const t = estimateMinutes(distance, m.id)
+            const dm = estimateDistanceKm({ ...plan, mode: m.id })
+            const t = estimateMinutes(dm, m.id)
             const active = m.id === plan.mode
             return (
               <div
