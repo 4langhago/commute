@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { MapPin, Loader2, X, Crosshair } from 'lucide-react'
+import { MapPin, Loader2, X, Crosshair, ExternalLink } from 'lucide-react'
 import { searchAddresses } from '../lib/geocode'
 import { haptics } from '../lib/haptics'
 
@@ -106,6 +106,13 @@ export default function AddressInput({ value, onChange, placeholder = 'Search ad
     )
   }
 
+  const openInGoogleMaps = () => {
+    if (!value || value.lat == null || value.lon == null) return
+    haptics.light()
+    const url = `https://www.google.com/maps/search/?api=1&query=${value.lat},${value.lon}`
+    window.open(url, '_blank')
+  }
+
   const onKeyDown = (e) => {
     if (!open || results.length === 0) {
       if (e.key === 'ArrowDown' && query.trim().length >= 2) setOpen(true)
@@ -143,6 +150,16 @@ export default function AddressInput({ value, onChange, placeholder = 'Search ad
               title="Clear"
             >
               <X className="w-4 h-4" />
+            </button>
+          )}
+          {value && value.lat != null && value.lon != null && (
+            <button
+              type="button"
+              onClick={openInGoogleMaps}
+              className="tap p-1.5 rounded-md text-slate-400 hover:text-blue-600 hover:bg-blue-50"
+              title="Open in Google Maps"
+            >
+              <ExternalLink className="w-4 h-4" />
             </button>
           )}
           <button
