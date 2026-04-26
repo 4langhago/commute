@@ -64,6 +64,7 @@ export default function AddressInput({ value, onChange, placeholder = 'Search ad
 
   const pick = (r) => {
     haptics.light()
+    console.log('Picked address:', r)
     onChange({ label: r.label, short: r.short, lat: r.lat, lon: r.lon })
     setQuery(r.short)
     setOpen(false)
@@ -107,9 +108,25 @@ export default function AddressInput({ value, onChange, placeholder = 'Search ad
   }
 
   const openInGoogleMaps = () => {
-    if (!value || value.lat == null || value.lon == null) return
+    if (!value) {
+      console.warn('No value selected')
+      return
+    }
+
     haptics.light()
-    const url = `https://www.google.com/maps/search/?api=1&query=${value.lat},${value.lon}`
+
+    // Use coordinates if available, otherwise use address label
+    let url
+    if (value.lat != null && value.lon != null && value.lat !== 0 && value.lon !== 0) {
+      url = `https://www.google.com/maps/search/?api=1&query=${value.lat},${value.lon}`
+      console.log('Opening Google Maps with coordinates:', url)
+    } else {
+      // Fallback to text search
+      const query = encodeURIComponent(value.label || value.short || query)
+      url = `https://www.google.com/maps/search/${query}`
+      console.log('Opening Google Maps with text search:', url)
+    }
+
     window.open(url, '_blank')
   }
 
@@ -152,7 +169,7 @@ export default function AddressInput({ value, onChange, placeholder = 'Search ad
               <X className="w-4 h-4" />
             </button>
           )}
-          {value && value.lat != null && value.lon != null && (
+          {value && (
             <button
               type="button"
               onClick={openInGoogleMaps}
