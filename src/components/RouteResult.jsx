@@ -1,4 +1,4 @@
-import { Clock, Route, DollarSign, Bookmark } from 'lucide-react'
+import { Clock, Route, DollarSign, Bookmark, ExternalLink } from 'lucide-react'
 import { MODES, getMode, estimateDistanceKm, estimateMinutes, estimateCost } from '../modes'
 
 export default function RouteResult({ plan, onSave }) {
@@ -15,6 +15,17 @@ export default function RouteResult({ plan, onSave }) {
   const SelIcon = selected.icon
   const mins = estimateMinutes(distance, plan.mode)
   const cost = estimateCost(distance, plan.mode)
+
+  const openInGoogleMaps = () => {
+    if (!plan.originCoords || !plan.destinationCoords) {
+      console.warn('Coordinates missing for Google Maps route')
+      return
+    }
+    const origin = `${plan.originCoords.lat},${plan.originCoords.lon}`
+    const destination = `${plan.destinationCoords.lat},${plan.destinationCoords.lon}`
+    const url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&travelmode=${plan.mode === 'car' ? 'driving' : plan.mode === 'transit' ? 'transit' : plan.mode === 'bike' ? 'bicycling' : 'walking'}`
+    window.open(url, '_blank')
+  }
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
@@ -64,13 +75,23 @@ export default function RouteResult({ plan, onSave }) {
           })}
         </div>
 
-        <button
-          onClick={() => onSave(plan)}
-          className="tap mt-5 w-full inline-flex items-center justify-center gap-2 py-2.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 font-medium hover:bg-indigo-100"
-        >
-          <Bookmark className="w-4 h-4" />
-          Save this route
-        </button>
+        <div className="flex gap-2 mt-5">
+          <button
+            onClick={() => onSave(plan)}
+            className="tap flex-1 inline-flex items-center justify-center gap-2 py-2.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 font-medium hover:bg-indigo-100"
+          >
+            <Bookmark className="w-4 h-4" />
+            Save route
+          </button>
+          <button
+            onClick={openInGoogleMaps}
+            className="tap inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 font-medium hover:bg-blue-100"
+            title="Open in Google Maps"
+          >
+            <ExternalLink className="w-4 h-4" />
+            Google Maps
+          </button>
+        </div>
       </div>
     </div>
   )
