@@ -14,9 +14,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
       manifest: {
-        name: 'Commute — Route Planner',
-        short_name: 'Commute',
-        description: 'Plan commute routes, compare modes, and save favorites.',
+        name: '통근 — 출퇴근 도우미',
+        short_name: '통근',
+        description: '실시간 교통 상황, 스마트 알림, 출퇴근 경로 관리',
         theme_color: '#4f46e5',
         background_color: '#f8fafc',
         display: 'standalone',

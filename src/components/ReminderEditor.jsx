@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Bell, BellOff, AlertTriangle } from 'lucide-react'
+import { Bell, BellOff, AlertTriangle, Zap } from 'lucide-react'
 import { DAYS, defaultReminder, ensureNotificationPermission } from '../lib/reminders'
+import { t, getDayLabel } from '../lib/i18n'
 
 export default function ReminderEditor({ value, onChange }) {
   const v = value || defaultReminder()
@@ -34,7 +35,7 @@ export default function ReminderEditor({ value, onChange }) {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
           {v.enabled ? <Bell className="w-4 h-4 text-indigo-600" /> : <BellOff className="w-4 h-4 text-slate-400" />}
-          Remind me to leave
+          {t('remindLeave')}
         </div>
         <button
           type="button"
@@ -52,7 +53,7 @@ export default function ReminderEditor({ value, onChange }) {
       {v.enabled && (
         <div className="mt-3 space-y-3">
           <div className="flex items-center gap-3">
-            <label className="text-xs font-medium text-slate-500">Time</label>
+            <label className="text-xs font-medium text-slate-500">{t('reminderTime')}</label>
             <input
               type="time"
               value={v.time}
@@ -61,8 +62,23 @@ export default function ReminderEditor({ value, onChange }) {
             />
           </div>
 
+          <div className="flex items-center gap-3">
+            <label className="text-xs font-medium text-slate-500">{t('earlyReminder')}</label>
+            <select
+              value={v.earlyMin ?? 0}
+              onChange={(e) => onChange({ ...v, earlyMin: Number(e.target.value) })}
+              className="px-2 py-1.5 rounded-md border border-slate-200 bg-white text-sm"
+            >
+              <option value={0}>-</option>
+              <option value={5}>5{t('minBefore')}</option>
+              <option value={10}>10{t('minBefore')}</option>
+              <option value={15}>15{t('minBefore')}</option>
+              <option value={30}>30{t('minBefore')}</option>
+            </select>
+          </div>
+
           <div>
-            <div className="text-xs font-medium text-slate-500 mb-1.5">Repeat on</div>
+            <div className="text-xs font-medium text-slate-500 mb-1.5">{t('repeatOn')}</div>
             <div className="flex gap-1.5">
               {DAYS.map((d) => {
                 const active = v.days.includes(d.id)
@@ -74,28 +90,44 @@ export default function ReminderEditor({ value, onChange }) {
                     className={`tap w-8 h-8 rounded-full text-xs font-bold transition-colors ${
                       active ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-200 text-slate-500 hover:border-slate-300'
                     }`}
-                    title={d.full}
+                    title={getDayLabel(d.id)}
                   >
-                    {d.label}
+                    {getDayLabel(d.id)}
                   </button>
                 )
               })}
             </div>
           </div>
 
+          <div className="flex items-center gap-2 p-2 rounded-md bg-indigo-50/60">
+            <Zap className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+            <div>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={v.smart ?? false}
+                  onChange={(e) => onChange({ ...v, smart: e.target.checked })}
+                  className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                <span className="text-xs font-medium text-slate-700">{t('smartReminder')}</span>
+              </label>
+              <div className="text-[10px] text-slate-500 mt-0.5 ml-5">{t('smartReminderDesc')}</div>
+            </div>
+          </div>
+
           {permState === 'denied' && (
             <div className="flex items-start gap-1.5 text-[11px] text-rose-600 bg-rose-50 border border-rose-200 rounded-md px-2 py-1.5">
               <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-              <span>Notifications are blocked. Enable them in your browser settings for this site.</span>
+              <span>{t('notifBlocked')}</span>
             </div>
           )}
           {permState === 'unsupported' && (
             <div className="text-[11px] text-slate-500">
-              Your browser doesn't support notifications.
+              {t('notifUnsupported')}
             </div>
           )}
           <div className="text-[11px] text-slate-500 leading-snug">
-            Reminders work while the app is open (install it for best results). True background push requires a server — coming later.
+            {t('notifNote')}
           </div>
         </div>
       )}
