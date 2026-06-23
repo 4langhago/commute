@@ -1,8 +1,6 @@
-// In-app reminder scheduler.
-// Limitation: true background push requires a server + VAPID keys.
-// This scheduler runs while the app/PWA is open and also via the ServiceWorker's
-// 'message' channel when the tab regains focus. For practical use: install the PWA
-// and leave it open in background, or open it in the morning to see reminders.
+import { getTrafficLevel, estimateWithTraffic } from './traffic'
+import { estimateDistanceKm, estimateMinutes } from '../modes'
+import { t } from './i18n'
 
 export const DAYS = [
   { id: 0, label: 'S', full: 'Sun' },
@@ -14,7 +12,7 @@ export const DAYS = [
   { id: 6, label: 'S', full: 'Sat' }
 ]
 
-const FIRED_KEY = 'commute.remindersFired.v1'
+const FIRED_KEY = 'commute.remindersFired.v2'
 
 function loadFired() {
   try { return JSON.parse(localStorage.getItem(FIRED_KEY) || '{}') } catch { return {} }
@@ -31,8 +29,15 @@ export function describeReminder(r) {
   if (!r || !r.enabled) return null
   const days = (r.days ?? []).slice().sort().map((id) => DAYS[id]?.full).filter(Boolean)
   if (days.length === 0) return null
-  const dayStr = days.length === 7 ? 'Every day' : days.length === 5 && r.days.every((d) => d >= 1 && d <= 5) ? 'Weekdays' : days.join(', ')
-  return `${dayStr} · ${r.time}`
+  const dayStr = days.length === 7
+    ? t('repeatOn')
+    : days.length === 5 && r.days.every((d) => d >= 1 && d <= 5)
+      ? 'Weekdays'
+      : days.map((d) => t(d)).join(', ')
+  let desc = `${dayStr} · ${r.time}`
+  if (r.earlyMin > 0) desc += ` (-${r.earlyMin}${t('minutesShort')})`
+  if (r.smart) desc += ` · ${t('smartReminder')}`
+  return desc
 }
 
 export async function ensureNotificationPermission() {
@@ -43,23 +48,38 @@ export async function ensureNotificationPermission() {
   return r
 }
 
-function showNotification(title, body) {
+function showNotification(title, body, tag = 'commute-reminder') {
   if (typeof Notification === 'undefined') return
   if (Notification.permission !== 'granted') return
-  // Prefer SW registration so the notification survives briefly in the OS tray.
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.getRegistration().then((reg) => {
       const opts = {
         body,
         icon: 'pwa-192x192.png',
         badge: 'pwa-192x192.png',
-        tag: 'commute-reminder'
+        tag,
+        vibrate: [200, 100, 200],
+        requireInteraction: true,
       }
       if (reg && reg.showNotification) reg.showNotification(title, opts)
       else new Notification(title, opts)
     }).catch(() => new Notification(title, { body }))
   } else {
     new Notification(title, { body })
+  }
+}
+
+function getTrafficInfo(route) {
+  try {
+    const distance = estimateDistanceKm(route)
+    const baseMin = estimateMinutes(distance, route.mode)
+    const level = getTrafficLevel()
+    const adjMin = estimateWithTraffic(baseMin, level, null)
+    const delay = adjMin - baseMin
+    const labels = [t('trafficSmooth'), t('trafficModerate'), t('trafficCongested'), t('trafficHeavy')]
+    return { baseMin, adjMin, delay, level, label: labels[Math.min(level, 3)] }
+  } catch {
+    return null
   }
 }
 
@@ -71,11 +91,30 @@ function dueNow(reminder, now = new Date()) {
   return now.getHours() === hh && now.getMinutes() === mm
 }
 
-/**
- * Start a tick that fires reminder notifications.
- * Returns a stop function.
- * `getRoutes` is read each tick so edits propagate live.
- */
+function earlyDueNow(reminder, now = new Date()) {
+  if (!reminder?.enabled || !reminder.time || !reminder.earlyMin) return false
+  const [hh, mm] = reminder.time.split(':').map(Number)
+  if (Number.isNaN(hh) || Number.isNaN(mm)) return false
+  if (!(reminder.days || []).includes(now.getDay())) return false
+
+  const targetMin = hh * 60 + mm - (reminder.earlyMin || 0)
+  const nowMin = now.getHours() * 60 + now.getMinutes()
+  return nowMin === targetMin
+}
+
+function smartDueNow(reminder, route, now = new Date()) {
+  if (!reminder?.enabled || !reminder.smart || !reminder.time) return false
+  if (!(reminder.days || []).includes(now.getDay())) return false
+
+  const traffic = getTrafficInfo(route)
+  if (!traffic || traffic.delay <= 0) return false
+
+  const [hh, mm] = reminder.time.split(':').map(Number)
+  const targetMin = hh * 60 + mm - traffic.delay
+  const nowMin = now.getHours() * 60 + now.getMinutes()
+  return nowMin === targetMin
+}
+
 export function startReminderScheduler(getRoutes) {
   let stopped = false
 
@@ -86,16 +125,54 @@ export function startReminderScheduler(getRoutes) {
       const stamp = todayStamp(now)
       const fired = loadFired()
       const routes = getRoutes() || []
+
       for (const r of routes) {
-        if (!dueNow(r.reminder, now)) continue
-        const key = `${r.id}|${stamp}|${r.reminder.time}`
-        if (fired[key]) continue
-        const title = `Time to leave · ${r.nickname || 'Saved route'}`
-        const body = `${r.origin} → ${r.destination}`
-        showNotification(title, body)
-        fired[key] = Date.now()
+        const rem = r.reminder
+        if (!rem?.enabled) continue
+
+        if (smartDueNow(rem, r, now)) {
+          const key = `smart|${r.id}|${stamp}|${rem.time}`
+          if (!fired[key]) {
+            const traffic = getTrafficInfo(r)
+            const title = `${t('trafficCongested')} · ${r.nickname || t('commuteToWork')}`
+            const body = traffic
+              ? `${r.origin} → ${r.destination}\n${t('trafficStatus')}: ${traffic.label} (+${traffic.delay}${t('minutesShort')})\n${t('estimatedTime')}: ${traffic.adjMin}${t('minutesShort')}`
+              : `${r.origin} → ${r.destination}`
+            showNotification(title, body, `smart-${r.id}`)
+            fired[key] = Date.now()
+          }
+        }
+
+        if (earlyDueNow(rem, now)) {
+          const key = `early|${r.id}|${stamp}|${rem.time}`
+          if (!fired[key]) {
+            const title = `${rem.earlyMin}${t('minBefore')} · ${r.nickname || t('commuteToWork')}`
+            const traffic = getTrafficInfo(r)
+            const body = traffic
+              ? `${r.origin} → ${r.destination}\n${t('estimatedTime')}: ${traffic.adjMin}${t('minutesShort')}`
+              : `${r.origin} → ${r.destination}`
+            showNotification(title, body, `early-${r.id}`)
+            fired[key] = Date.now()
+          }
+        }
+
+        if (dueNow(rem, now)) {
+          const key = `main|${r.id}|${stamp}|${rem.time}`
+          if (!fired[key]) {
+            const traffic = getTrafficInfo(r)
+            const title = `${t('leaveNow')} · ${r.nickname || t('commuteToWork')}`
+            let body = `${r.origin} → ${r.destination}`
+            if (traffic) {
+              body += `\n${t('trafficStatus')}: ${traffic.label}`
+              if (traffic.delay > 0) body += ` (+${traffic.delay}${t('minutesShort')})`
+              body += `\n${t('estimatedTime')}: ${traffic.adjMin}${t('minutesShort')}`
+            }
+            showNotification(title, body, `main-${r.id}`)
+            fired[key] = Date.now()
+          }
+        }
       }
-      // Purge entries older than 2 days
+
       const cutoff = Date.now() - 2 * 24 * 60 * 60 * 1000
       for (const k of Object.keys(fired)) if (fired[k] < cutoff) delete fired[k]
       saveFired(fired)
@@ -104,7 +181,6 @@ export function startReminderScheduler(getRoutes) {
     }
   }
 
-  // Align to the next 30-second boundary so we don't miss a minute
   tick()
   const id = setInterval(tick, 30_000)
   const onVisible = () => { if (document.visibilityState === 'visible') tick() }
@@ -121,6 +197,8 @@ export function defaultReminder() {
   return {
     enabled: false,
     time: '08:00',
-    days: [1, 2, 3, 4, 5] // weekdays
+    days: [1, 2, 3, 4, 5],
+    earlyMin: 0,
+    smart: false,
   }
 }
