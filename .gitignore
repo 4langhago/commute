@@ -1,6 +1,8 @@
-node_modules
-dist
-.vite
+node_modules/
+dist/
 .env
-.env.local
+*.local
 .DS_Store
+proxy-app/
+.omc/
+.claude/
