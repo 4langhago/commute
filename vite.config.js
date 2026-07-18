@@ -2,37 +2,38 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
-// BASE_PATH is injected by the GitHub Actions workflow (e.g. "/repo-name/").
-// Falls back to "/" for local dev and other hosts.
-const base = process.env.BASE_PATH || '/'
-
 export default defineConfig({
-  base,
   plugins: [
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
+      includeAssets: ['favicon.svg'],
       manifest: {
-        name: 'Commute — Route Planner',
-        short_name: 'Commute',
-        description: 'Plan commute routes, compare modes, and save favorites.',
+        name: '통근 경로 플래너',
+        short_name: '통근',
+        description: '경로를 계획하고 교통수단을 비교하세요. 오프라인에서도 작동합니다.',
         theme_color: '#4f46e5',
         background_color: '#f8fafc',
         display: 'standalone',
-        orientation: 'portrait',
-        start_url: base,
-        scope: base,
         icons: [
-          { src: 'pwa-192x192.png', sizes: '192x192', type: 'image/png' },
-          { src: 'pwa-512x512.png', sizes: '512x512', type: 'image/png' },
-          { src: 'pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' }
+          { src: 'favicon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' }
         ]
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest}']
+        globPatterns: ['**/*.{js,css,html,svg,png}'],
+        runtimeCaching: [
+          {
+            urlPattern: /^https:\/\/nominatim\.openstreetmap\.org\/.*/i,
+            handler: 'NetworkFirst',
+            options: { cacheName: 'nominatim-cache', expiration: { maxEntries: 50, maxAgeSeconds: 86400 } }
+          },
+          {
+            urlPattern: /^https:\/\/tile\.openstreetmap\.org\/.*/i,
+            handler: 'CacheFirst',
+            options: { cacheName: 'map-tiles', expiration: { maxEntries: 500, maxAgeSeconds: 604800 } }
+          }
+        ]
       }
     })
-  ],
-  server: { port: 5173, host: true }
+  ]
 })

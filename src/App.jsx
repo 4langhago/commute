@@ -1,237 +1,209 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { MapPinned, Bookmark, Inbox } from 'lucide-react'
-import RouteForm from './components/RouteForm'
-import RouteResult from './components/RouteResult'
-import SavedRouteCard from './components/SavedRouteCard'
-import BottomNav from './components/BottomNav'
-import StatsView from './components/StatsView'
-import InstallBanner from './components/InstallBanner'
-import ReminderEditor from './components/ReminderEditor'
-import { haptics } from './lib/haptics'
-import { startReminderScheduler, defaultReminder } from './lib/reminders'
+import React, { useState, Suspense, useEffect } from 'react'
+import { Navigation2, Bookmark, Bell, BellOff, MapPin, ChevronDown, Settings } from 'lucide-react'
+import { useStore, MODES, haversineKm } from './store/useStore'
+import RoutePanel from './components/RoutePanel'
+import FavoritesPanel from './components/FavoritesPanel'
+import NotificationSettings from './components/NotificationSettings'
+import BottomSheet, { SNAP } from './components/BottomSheet'
+import { reverseGeocode } from './utils/geocode'
+import toast from './utils/toast'
+import { startNotificationScheduler, stopNotificationScheduler } from './utils/notificationScheduler'
 
-const STORAGE_KEY = 'commute.savedRoutes.v1'
-const TAB_KEY = 'commute.activeTab.v1'
+const MapView = React.lazy(() => import('./components/MapView'))
+
+const NAV = [
+  { id: 'search',        icon: Navigation2, label: '경로' },
+  { id: 'favorites',    icon: Bookmark,    label: '즐겨찾기' },
+  { id: 'notifications', icon: Settings,    label: '알림' },
+]
 
 export default function App() {
-  const [tab, setTab] = useState(() => localStorage.getItem(TAB_KEY) || 'plan')
-  const [plan, setPlan] = useState(null)
-  const [saved, setSaved] = useState([])
-  const [pendingSave, setPendingSave] = useState(null)
-  const [nickname, setNickname] = useState('')
-  const [reminder, setReminder] = useState(defaultReminder())
-  const [formSeed, setFormSeed] = useState(0)
-  const [toast, setToast] = useState(null)
-  const savedRef = useRef([])
-  savedRef.current = saved
+  const {
+    tab, setTab,
+    origin, destination,
+    setOrigin, setDestination,
+    notifyEnabled, setNotifyEnabled,
+    results, activeMode, favorites,
+    notificationSchedule,
+  } = useStore()
 
-  // Load saved
+  const [snap, setSnap]               = useState(SNAP.HALF)
+  const [mapClickTarget, setMapClickTarget] = useState(null)
+
+  // 알림 스케줄러 시작/중지
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY)
-      if (raw) setSaved(JSON.parse(raw))
-    } catch {}
-  }, [])
-
-  // Persist saved
-  useEffect(() => {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(saved)) } catch {}
-  }, [saved])
-
-  // Persist tab
-  useEffect(() => {
-    localStorage.setItem(TAB_KEY, tab)
-  }, [tab])
-
-  // Auto-hide toast
-  useEffect(() => {
-    if (!toast) return
-    const id = setTimeout(() => setToast(null), 1800)
-    return () => clearTimeout(id)
-  }, [toast])
-
-  // Reminder scheduler (reads latest saved via ref)
-  useEffect(() => {
-    const stop = startReminderScheduler(() => savedRef.current)
-    return stop
-  }, [])
-
-  const handlePlan = (p) => {
-    haptics.light()
-    setPlan(p)
-  }
-
-  const handleSave = (p) => {
-    haptics.medium()
-    setPendingSave(p)
-    setNickname('')
-    setReminder(defaultReminder())
-  }
-
-  const confirmSave = () => {
-    if (!pendingSave) return
-    const route = {
-      id: crypto.randomUUID?.() ?? String(Date.now()),
-      nickname: nickname.trim() || `${pendingSave.origin} → ${pendingSave.destination}`,
-      ...pendingSave,
-      reminder,
-      createdAt: Date.now()
+    if (notificationSchedule?.enabled) {
+      const getRouteData = () => {
+        if (notificationSchedule.favoriteId) {
+          const fav = favorites.find(f => f.id === notificationSchedule.favoriteId)
+          if (fav) {
+            const dist = haversineKm(fav.origin, fav.destination)
+            const results = MODES.map(m => ({
+              ...m,
+              distanceKm: dist,
+              durationMin: Math.ceil((dist / m.kmh) * 60),
+            }))
+            return {
+              origin: fav.origin,
+              destination: fav.destination,
+              activeMode: 'transit',
+              results,
+            }
+          }
+        }
+        if (origin && destination && results) {
+          return { origin, destination, activeMode, results }
+        }
+        return null
+      }
+      startNotificationScheduler(notificationSchedule, getRouteData)
+    } else {
+      stopNotificationScheduler()
     }
-    setSaved((s) => [route, ...s])
-    setPendingSave(null)
-    setNickname('')
-    setReminder(defaultReminder())
-    haptics.success()
-    setToast(reminder.enabled ? 'Route saved · reminder on' : 'Route saved')
+
+    return () => stopNotificationScheduler()
+  }, [notificationSchedule, favorites, origin, destination, results, activeMode])
+
+  const handleMapClick = async (latlng) => {
+    if (!mapClickTarget) return
+    const place = await reverseGeocode(latlng.lat, latlng.lng)
+    if (mapClickTarget === 'origin') setOrigin(place)
+    else                             setDestination(place)
+    setMapClickTarget(null)
+    toast(`${mapClickTarget === 'origin' ? '출발지' : '목적지'}: ${place.shortLabel}`, 'ok')
+    setSnap(SNAP.HALF)
   }
 
-  const handleDelete = (id) => {
-    haptics.warning()
-    setSaved((s) => s.filter((r) => r.id !== id))
-    setToast('Route removed')
-  }
-
-  const handlePlanAgain = (route) => {
-    haptics.light()
-    setPlan({
-      origin: route.origin,
-      destination: route.destination,
-      originCoord: route.originCoord ?? null,
-      destCoord: route.destCoord ?? null,
-      mode: route.mode
-    })
-    setFormSeed((n) => n + 1)
-    setTab('plan')
-  }
-
-  const badges = useMemo(() => ({ saved: saved.length }), [saved.length])
+  const activeResult = results?.find((r) => r.id === activeMode)
 
   return (
-    <div
-      className="min-h-full bg-slate-50 flex flex-col"
-      style={{ paddingTop: 'var(--safe-top)' }}
-    >
-      {/* Status bar / top app bar */}
-      <header className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b border-slate-200">
-        <div className="max-w-5xl mx-auto px-4 py-3 flex items-center gap-2">
-          <div className="w-9 h-9 rounded-lg bg-indigo-600 text-white grid place-items-center shadow-sm">
-            <MapPinned className="w-5 h-5" />
-          </div>
-          <div className="min-w-0">
-            <div className="text-base font-bold text-slate-800 leading-tight">
-              {tab === 'plan' ? 'Plan a route' : tab === 'saved' ? 'Saved routes' : 'Stats'}
+    <div className="relative w-full h-full overflow-hidden bg-slate-100" style={{ paddingTop: 'var(--sat)' }}>
+
+      {/* ── 지도 (전체 화면 배경) ── */}
+      <div className="absolute inset-0">
+        <Suspense fallback={
+          <div className="flex items-center justify-center h-full bg-slate-200">
+            <div className="flex flex-col items-center gap-3">
+              <div className="w-10 h-10 border-4 border-brand border-t-transparent rounded-full animate-spin" />
+              <span className="text-slate-500 text-sm font-medium">지도 불러오는 중...</span>
             </div>
-            <div className="text-xs text-slate-500 leading-tight">Commute</div>
+          </div>
+        }>
+          <MapView onMapClick={handleMapClick} />
+        </Suspense>
+      </div>
+
+      {/* ── 상단 상태바 (글래스) ── */}
+      <div className="absolute top-0 left-0 right-0 z-[900] px-4 pt-3 pb-2 pointer-events-none"
+           style={{ paddingTop: 'max(calc(var(--sat) + 8px), 12px)' }}>
+        <div className="flex items-center justify-between pointer-events-auto">
+
+          {/* 앱 로고 */}
+          <div className="glass flex items-center gap-2 px-3 py-2 rounded-2xl shadow-sm">
+            <span className="text-lg">🚌</span>
+            <span className="text-sm font-bold text-slate-800">통근</span>
+          </div>
+
+          {/* 우측 액션 버튼들 */}
+          <div className="flex gap-2">
+            {/* 지도 클릭 선택 모드 */}
+            <button
+              onClick={() => setMapClickTarget(mapClickTarget === 'origin' ? null : 'origin')}
+              className={`touch-btn glass p-2.5 rounded-2xl shadow-sm transition-all ${mapClickTarget === 'origin' ? 'bg-emerald-500 text-white' : ''}`}
+              title="출발지 지도 선택"
+            >
+              <MapPin className="w-4 h-4" style={{ color: mapClickTarget === 'origin' ? 'white' : '#10b981' }} />
+            </button>
+            <button
+              onClick={() => setMapClickTarget(mapClickTarget === 'dest' ? null : 'dest')}
+              className={`touch-btn glass p-2.5 rounded-2xl shadow-sm transition-all ${mapClickTarget === 'dest' ? 'bg-red-500 text-white' : ''}`}
+              title="목적지 지도 선택"
+            >
+              <MapPin className="w-4 h-4" style={{ color: mapClickTarget === 'dest' ? 'white' : '#ef4444' }} />
+            </button>
+            <button
+              onClick={() => { setTab('notifications'); if (snap === SNAP.COLLAPSED) setSnap(SNAP.HALF) }}
+              className={`touch-btn glass p-2.5 rounded-2xl shadow-sm ${notificationSchedule?.enabled ? 'bg-brand/10' : ''}`}
+              title="알림 설정"
+            >
+              {notificationSchedule?.enabled
+                ? <Bell className="w-4 h-4 text-brand" />
+                : <BellOff className="w-4 h-4 text-slate-400" />
+              }
+            </button>
           </div>
         </div>
-      </header>
 
-      {/* Main scroll area; padding-bottom accounts for bottom nav + safe area */}
-      <main
-        className="flex-1 max-w-5xl w-full mx-auto px-4 py-4"
-        style={{ paddingBottom: 'calc(5rem + var(--safe-bottom))' }}
-      >
-        <InstallBanner />
-
-        {tab === 'plan' && (
-          <div className="space-y-4">
-            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-              <RouteForm key={formSeed} onPlan={handlePlan} initial={plan} />
-            </div>
-            <RouteResult plan={plan} onSave={handleSave} />
-          </div>
-        )}
-
-        {tab === 'saved' && (
-          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-semibold text-slate-800 inline-flex items-center gap-2">
-                <Bookmark className="w-4 h-4 text-indigo-600" />
-                Saved routes
-              </h2>
-              <span className="text-xs text-slate-500">{saved.length}</span>
-            </div>
-
-            {saved.length === 0 ? (
-              <div className="text-center py-10 text-slate-500">
-                <Inbox className="w-8 h-8 mx-auto text-slate-300 mb-2" />
-                <div className="text-sm">No saved routes yet.</div>
-                <button
-                  onClick={() => setTab('plan')}
-                  className="tap mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700"
-                >
-                  Plan your first route
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {saved.map((r) => (
-                  <SavedRouteCard
-                    key={r.id}
-                    route={r}
-                    onDelete={handleDelete}
-                    onPlanAgain={handlePlanAgain}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {tab === 'stats' && <StatsView saved={saved} />}
-      </main>
-
-      {/* Save modal */}
-      {pendingSave && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm grid place-items-end sm:place-items-center p-0 sm:p-4 z-50">
+        {/* 지도 클릭 힌트 배너 */}
+        {mapClickTarget && (
           <div
-            className="w-full sm:max-w-sm rounded-t-2xl sm:rounded-xl bg-white shadow-xl p-5 max-h-[85vh] overflow-y-auto"
-            style={{ paddingBottom: 'calc(1.25rem + var(--safe-bottom))' }}
+            className="mt-2 text-center py-2 px-4 rounded-2xl text-white text-xs font-semibold shadow-lg animate-slideUp pointer-events-auto touch-btn"
+            style={{ background: mapClickTarget === 'origin' ? '#10b981' : '#ef4444' }}
+            onClick={() => setMapClickTarget(null)}
           >
-            <div className="mx-auto sm:hidden w-10 h-1.5 rounded-full bg-slate-200 mb-3" />
-            <h3 className="text-base font-semibold text-slate-800">Save route</h3>
-            <p className="text-xs text-slate-500 mt-0.5 truncate">
-              {pendingSave.origin} → {pendingSave.destination}
-            </p>
-            <label className="block text-xs font-semibold text-slate-500 mt-4 mb-1">Nickname (optional)</label>
-            <input
-              autoFocus
-              value={nickname}
-              onChange={(e) => setNickname(e.target.value)}
-              placeholder="e.g. Morning commute"
-              className="w-full px-3 py-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500"
-              onKeyDown={(e) => e.key === 'Enter' && confirmSave()}
-            />
+            지도를 탭하여 {mapClickTarget === 'origin' ? '출발지' : '목적지'} 선택 · 취소하려면 여기 탭
+          </div>
+        )}
+      </div>
 
-            <div className="mt-4">
-              <ReminderEditor value={reminder} onChange={setReminder} />
-            </div>
-
-            <div className="mt-5 flex justify-end gap-2">
-              <button
-                onClick={() => { haptics.light(); setPendingSave(null) }}
-                className="tap px-3 py-2 text-sm rounded-lg text-slate-600 hover:bg-slate-100"
-              >Cancel</button>
-              <button
-                onClick={confirmSave}
-                className="tap px-4 py-2 text-sm rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700"
-              >Save</button>
-            </div>
+      {/* ── 선택된 경로 뱃지 (지도 중앙 하단) ── */}
+      {activeResult && snap === SNAP.COLLAPSED && (
+        <div
+          className="absolute z-[900] left-1/2 -translate-x-1/2 animate-scaleIn touch-btn"
+          style={{ bottom: 'calc(88px + var(--sab) + 16px)' }}
+          onClick={() => setSnap(SNAP.HALF)}
+        >
+          <div
+            className="flex items-center gap-2 px-5 py-3 rounded-2xl shadow-xl text-white font-semibold text-sm"
+            style={{ background: `linear-gradient(135deg, ${activeResult.color}, ${activeResult.color}cc)` }}
+          >
+            <span className="text-xl">{activeResult.emoji}</span>
+            <span className="text-2xl font-bold">{activeResult.durationMin}분</span>
+            <span className="opacity-75 text-xs">{activeResult.distanceKm.toFixed(1)}km</span>
+            <ChevronDown className="w-4 h-4 opacity-60" />
           </div>
         </div>
       )}
 
-      {/* Toast */}
-      {toast && (
-        <div
-          className="fixed left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full bg-slate-900 text-white text-xs font-medium shadow-lg animate-in fade-in"
-          style={{ bottom: 'calc(5rem + var(--safe-bottom))' }}
-        >
-          {toast}
-        </div>
-      )}
-
-      <BottomNav active={tab} onChange={setTab} badges={badges} />
+      {/* ── 바텀 시트 ── */}
+      <BottomSheet
+        snap={snap}
+        setSnap={setSnap}
+        header={
+          /* 탭 네비게이션 */
+          <div className="flex px-4 gap-1">
+            {NAV.map(({ id, icon: Icon, label }) => {
+              const cnt = id === 'favorites' ? favorites.length : null
+              return (
+                <button
+                  key={id}
+                  onClick={() => { setTab(id); if (snap === SNAP.COLLAPSED) setSnap(SNAP.HALF) }}
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+                    tab === id
+                      ? 'bg-brand/10 text-brand'
+                      : 'text-slate-400'
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
+                  {label}
+                  {cnt > 0 && (
+                    <span className="w-5 h-5 text-[10px] rounded-full bg-brand text-white flex items-center justify-center font-bold">
+                      {cnt}
+                    </span>
+                  )}
+                </button>
+              )
+            })}
+          </div>
+        }
+      >
+        {tab === 'search'
+          ? <RoutePanel onSearchDone={() => setSnap(SNAP.FULL)} />
+          : tab === 'favorites'
+            ? <FavoritesPanel onLoad={() => setSnap(SNAP.HALF)} />
+            : <NotificationSettings />
+        }
+      </BottomSheet>
     </div>
   )
 }

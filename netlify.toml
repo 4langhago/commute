@@ -4,10 +4,8 @@
 
 [build.environment]
   NODE_VERSION = "20"
-  # Netlify serves at the domain root, so BASE_PATH must be "/" (not the GitHub Pages subpath).
-  BASE_PATH = "/"
 
-# SPA fallback (though this app is single-index, it future-proofs client-side routes)
+# SPA fallback — single index.html serves all routes.
 [[redirects]]
   from = "/*"
   to = "/index.html"
