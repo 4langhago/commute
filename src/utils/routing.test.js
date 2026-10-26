@@ -1,9 +1,12 @@
 // node --test 로 실행 (의존성 없음). 실제 네트워크 호출 없이 OSRM 응답을 흉내 낸다.
-import { test } from 'node:test'
+import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   buildOsrmUrl, parseOsrmResponse, fetchOsrmRoute, computeRoutes, sourceLabel, haversineKm, OSRM_ENDPOINTS,
+  _resetRoutingState, FAILURE_COOLDOWN_MS, CACHE_TTL_MS,
 } from './routing.js'
+
+beforeEach(() => _resetRoutingState())
 
 const MODES = [
   { id: 'transit', label: '대중교통', kmh: 30 },
@@ -101,4 +104,33 @@ test('라벨이 실경로와 추정을 구분한다', () => {
   assert.equal(sourceLabel({ id: 'walk', distanceKm: 12.5, source: 'road' }), '도로 12.5 km')
   assert.match(sourceLabel({ id: 'transit', distanceKm: 14, source: 'road-estimate' }), /추정/)
   assert.match(sourceLabel({ id: 'bike', distanceKm: 9.9, source: 'straight' }), /직선거리 · 추정/)
+})
+
+// ── QA 검수 반영: 공개 서버 보호·스냅 검증 ─────────────────────────────
+test('같은 경로는 캐시를 쓰고 서버를 다시 부르지 않는다', async () => {
+  const f = fakeFetch({ car: osrm(14000, 1500) })
+  await fetchOsrmRoute('car', A, B, { fetchImpl: f.impl })
+  await fetchOsrmRoute('car', A, B, { fetchImpl: f.impl })
+  assert.equal(f.calls.length, 1)
+  let t = Date.now() + CACHE_TTL_MS + 1
+  await fetchOsrmRoute('car', A, B, { fetchImpl: f.impl, now: () => t })
+  assert.equal(f.calls.length, 2, '캐시 만료 후에는 다시 조회')
+})
+
+test('실패한 서버는 일정 시간 건너뛴다', async () => {
+  const f = fakeFetch({ car: 'throw' })
+  assert.equal(await fetchOsrmRoute('car', A, B, { fetchImpl: f.impl }), null)
+  const g = fakeFetch({ car: osrm(14000, 1500) })
+  assert.equal(await fetchOsrmRoute('car', A, B, { fetchImpl: g.impl }), null)
+  assert.equal(g.calls.length, 0, '쿨다운 중인데 서버를 불렀다')
+  const later = Date.now() + FAILURE_COOLDOWN_MS + 1
+  assert.ok(await fetchOsrmRoute('car', A, B, { fetchImpl: g.impl, now: () => later }))
+})
+
+test('도로에서 멀리 스냅된 경로는 버린다', () => {
+  const body = osrm(14000, 1500)
+  body.waypoints = [{ distance: 12 }, { distance: 4500 }]
+  assert.equal(parseOsrmResponse(body), null)
+  body.waypoints = [{ distance: 12 }, { distance: 80 }]
+  assert.ok(parseOsrmResponse(body))
 })

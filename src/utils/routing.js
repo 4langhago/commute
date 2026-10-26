@@ -16,6 +16,22 @@ export const OSRM_ENDPOINTS = {
 }
 
 export const ROUTE_TIMEOUT_MS = 8000
+// 공개 서버 보호: 같은 경로는 잠시 재사용하고, 실패한 서버는 잠시 건너뛴다.
+export const CACHE_TTL_MS = 10 * 60 * 1000
+export const FAILURE_COOLDOWN_MS = 5 * 60 * 1000
+// 출발/도착 좌표가 도로에서 이만큼(m) 넘게 떨어진 곳에 붙으면 엉뚱한 경로로 본다.
+export const MAX_SNAP_DISTANCE_M = 1000
+
+const routeCache = new Map()      // key → { at, value }
+const failedUntil = new Map()     // profile → epoch ms
+export function _resetRoutingState() {
+  routeCache.clear()
+  failedUntil.clear()
+}
+function cacheKey(profile, o, d) {
+  const r = (x) => x.toFixed(5)
+  return `${profile}:${r(o.lat)},${r(o.lng)}>${r(d.lat)},${r(d.lng)}`
+}
 
 export function haversineKm(a, b) {
   const R = 6371
@@ -45,6 +61,10 @@ export function buildOsrmUrl(base, origin, destination) {
  */
 export function parseOsrmResponse(json) {
   if (!json || json.code !== 'Ok' || !Array.isArray(json.routes) || json.routes.length === 0) return null
+  // 출발·도착이 도로에서 멀리 떨어진 지점에 스냅되면(바다·산 위 클릭 등) 그 경로는 쓰지 않는다.
+  if (Array.isArray(json.waypoints) && json.waypoints.some((w) => Number(w?.distance) > MAX_SNAP_DISTANCE_M)) {
+    return null
+  }
   const r = json.routes[0]
   const coords = r?.geometry?.coordinates
   if (!Number.isFinite(r.distance) || !Number.isFinite(r.duration) || !Array.isArray(coords) || coords.length < 2) {
@@ -58,9 +78,24 @@ export function parseOsrmResponse(json) {
   }
 }
 
-export async function fetchOsrmRoute(profile, origin, destination, { fetchImpl = globalThis.fetch, timeoutMs = ROUTE_TIMEOUT_MS } = {}) {
+export async function fetchOsrmRoute(profile, origin, destination, { fetchImpl = globalThis.fetch, timeoutMs = ROUTE_TIMEOUT_MS, now = Date.now } = {}) {
   const base = OSRM_ENDPOINTS[profile]
   if (!base || typeof fetchImpl !== 'function') return null
+  const key = cacheKey(profile, origin, destination)
+  const hit = routeCache.get(key)
+  if (hit && now() - hit.at < CACHE_TTL_MS) return hit.value
+  if ((failedUntil.get(profile) || 0) > now()) return null   // 최근 실패 → 잠시 직선거리 폴백
+  const result = await requestOsrm(fetchImpl, base, origin, destination, timeoutMs)
+  if (result) {
+    routeCache.set(key, { at: now(), value: result })
+    failedUntil.delete(profile)
+  } else {
+    failedUntil.set(profile, now() + FAILURE_COOLDOWN_MS)
+  }
+  return result
+}
+
+async function requestOsrm(fetchImpl, base, origin, destination, timeoutMs) {
   const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null
   const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null
   try {

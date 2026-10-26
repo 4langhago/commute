@@ -47,9 +47,14 @@ export function startNotificationScheduler(schedule, getRouteData) {
 
     if (!shouldNotify) return
 
+    // 알림을 보낼 수 없으면 경로도 조회하지 않는다(권한 없이 30초마다 서버를 부르던 문제).
+    if (!('Notification' in window) || Notification.permission !== 'granted') return
+
     // 알림 전송 — getRouteData 는 실경로 조회 때문에 Promise 를 돌려줄 수 있다.
     if (notifyInFlight) return
     notifyInFlight = true
+    // 시도 자체를 오늘 1회로 기록한다. 조회가 실패해도 같은 분 안에서 재조회하지 않는다.
+    localStorage.setItem(lastNotifyKey, today)
     let routeData
     try {
       routeData = await getRouteData()
@@ -59,8 +64,6 @@ export function startNotificationScheduler(schedule, getRouteData) {
       notifyInFlight = false
     }
     if (!routeData) return
-    // 조회하는 동안 다른 검사가 이미 오늘 알림을 보냈으면 중복 발송하지 않는다.
-    if (localStorage.getItem(lastNotifyKey) === today) return
 
     const { origin, destination, activeMode, results } = routeData
     const result = results?.find(r => r.id === activeMode) || results?.[0]
