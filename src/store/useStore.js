@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import { computeRoutes } from '../utils/routing'
 
 export const MODES = [
   { id: 'transit',  label: '대중교통', emoji: '🚌', kmh: 30,  color: '#4f46e5', unit: '분' },
@@ -8,21 +9,8 @@ export const MODES = [
   { id: 'walk',     label: '도보',     emoji: '🚶', kmh: 4.5, color: '#f59e0b', unit: '분' },
 ]
 
-function calcDuration(distanceKm, kmh) {
-  return Math.ceil((distanceKm / kmh) * 60)
-}
-
-export function haversineKm(a, b) {
-  const R = 6371
-  const dLat = ((b.lat - a.lat) * Math.PI) / 180
-  const dLon = ((b.lng - a.lng) * Math.PI) / 180
-  const h =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((a.lat * Math.PI) / 180) *
-    Math.cos((b.lat * Math.PI) / 180) *
-    Math.sin(dLon / 2) ** 2
-  return R * 2 * Math.asin(Math.sqrt(h))
-}
+// 거리·시간 계산은 utils/routing.js 로 옮겼다 (OSRM 실경로 + 직선거리 폴백).
+export { haversineKm } from '../utils/routing'
 
 export const useStore = create(
   persist(
@@ -49,17 +37,17 @@ export const useStore = create(
         if (_calcTimer) clearTimeout(_calcTimer)
         if (!origin || !destination) return
         set({ isSearching: true })
-        const timer = setTimeout(() => {
+        // 연타 시 마지막 요청만 서버에 보낸다(공개 OSRM 서버 부하·차단 방지).
+        const timer = setTimeout(async () => {
+          let results
+          try {
+            results = await computeRoutes(MODES, origin, destination)
+          } catch {
+            results = null
+          }
           const { origin: o, destination: d } = get()
-          // 타이머 대기 중 출발/도착지가 바뀌었으면 이 결과는 버림
+          // 조회 중 출발/도착지가 바뀌었으면 이 결과는 버린다(엉뚱한 경로 표시 방지).
           if (o !== origin || d !== destination) return
-          const dist = haversineKm(origin, destination)
-          const results = MODES.map((m) => ({
-            ...m,
-            distanceKm: dist,
-            durationMin: calcDuration(dist, m.kmh),
-          }))
-          results.sort((a, b) => a.durationMin - b.durationMin)
           set({ results, isSearching: false, _calcTimer: null })
         }, 600)
         set({ _calcTimer: timer })

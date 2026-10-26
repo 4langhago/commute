@@ -1,6 +1,7 @@
 import React, { useState, Suspense, useEffect } from 'react'
 import { Navigation2, Bookmark, Bell, BellOff, MapPin, ChevronDown, Settings } from 'lucide-react'
-import { useStore, MODES, haversineKm } from './store/useStore'
+import { useStore, MODES } from './store/useStore'
+import { computeRoutes } from './utils/routing'
 import RoutePanel from './components/RoutePanel'
 import FavoritesPanel from './components/FavoritesPanel'
 import NotificationSettings from './components/NotificationSettings'
@@ -33,16 +34,12 @@ export default function App() {
   // 알림 스케줄러 시작/중지
   useEffect(() => {
     if (notificationSchedule?.enabled) {
-      const getRouteData = () => {
+      const getRouteData = async () => {
         if (notificationSchedule.favoriteId) {
           const fav = favorites.find(f => f.id === notificationSchedule.favoriteId)
           if (fav) {
-            const dist = haversineKm(fav.origin, fav.destination)
-            const results = MODES.map(m => ({
-              ...m,
-              distanceKm: dist,
-              durationMin: Math.ceil((dist / m.kmh) * 60),
-            }))
+            // 알림 시각에 실경로를 조회한다(실패하면 직선거리 추정으로 자동 폴백).
+            const results = await computeRoutes(MODES, fav.origin, fav.destination)
             return {
               origin: fav.origin,
               destination: fav.destination,

@@ -3,6 +3,7 @@ import { ArrowRightLeft, Loader2, Navigation2, Bookmark, CheckCircle } from 'luc
 import { useStore, MODES } from '../store/useStore'
 import SearchInput from './SearchInput'
 import toast from '../utils/toast'
+import { sourceLabel } from '../utils/routing'
 
 function ModeChip({ mode, active, onClick }) {
   return (
@@ -41,7 +42,7 @@ function ResultCard({ r, active, onSelect }) {
           <span className="font-bold text-slate-800">{r.label}</span>
           {active && <CheckCircle className="w-4 h-4" style={{ color: r.color }} />}
         </div>
-        <div className="text-xs text-slate-400 mt-0.5">{r.distanceKm.toFixed(1)} km 직선거리</div>
+        <div className="text-xs text-slate-400 mt-0.5">{sourceLabel(r)}</div>
       </div>
       <div className="text-right shrink-0">
         <div className="text-2xl font-black" style={{ color: r.color }}>{r.durationMin}</div>
@@ -124,7 +125,13 @@ export default function RoutePanel({ onSearchDone }) {
               onSelect={() => setActiveMode(r.id)}
             />
           ))}
-          <p className="text-[11px] text-slate-400 text-center">직선거리 기준 예상 시간입니다</p>
+          <p className="text-[11px] text-slate-400 text-center">
+            {results.every((r) => r.source === 'straight')
+              ? '경로 서버에 연결하지 못해 직선거리 기준 예상 시간입니다'
+              : results.some((r) => r.source === 'straight')
+              ? "'직선거리 · 추정' 표시는 도로 경로를 받지 못한 수단입니다 · 대중교통은 도로거리 기반 추정"
+              : '자동차·자전거·도보는 실제 도로 경로(OSRM), 대중교통은 도로거리 기반 추정입니다'}
+          </p>
         </div>
       )}
     </div>

@@ -5,13 +5,15 @@
  */
 
 let schedulerInterval = null
+// 경로 조회(네트워크) 중에 30초 주기 검사가 다시 들어와 알림이 두 번 가는 것을 막는다.
+let notifyInFlight = false
 
 export function startNotificationScheduler(schedule, getRouteData) {
   stopNotificationScheduler()
 
   if (!schedule?.enabled) return
 
-  const checkAndNotify = () => {
+  const checkAndNotify = async () => {
     const now = new Date()
     const [hours, minutes] = schedule.time.split(':').map(Number)
     const scheduledTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes)
@@ -45,9 +47,20 @@ export function startNotificationScheduler(schedule, getRouteData) {
 
     if (!shouldNotify) return
 
-    // 알림 전송
-    const routeData = getRouteData()
+    // 알림 전송 — getRouteData 는 실경로 조회 때문에 Promise 를 돌려줄 수 있다.
+    if (notifyInFlight) return
+    notifyInFlight = true
+    let routeData
+    try {
+      routeData = await getRouteData()
+    } catch {
+      routeData = null
+    } finally {
+      notifyInFlight = false
+    }
     if (!routeData) return
+    // 조회하는 동안 다른 검사가 이미 오늘 알림을 보냈으면 중복 발송하지 않는다.
+    if (localStorage.getItem(lastNotifyKey) === today) return
 
     const { origin, destination, activeMode, results } = routeData
     const result = results?.find(r => r.id === activeMode) || results?.[0]
