@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import { computeRoutes } from '../utils/routing.js'
 
 export const MODES = [
   { id: 'transit',  label: '대중교통', emoji: '🚌', kmh: 30,  color: '#4f46e5', unit: '분' },
@@ -8,21 +9,8 @@ export const MODES = [
   { id: 'walk',     label: '도보',     emoji: '🚶', kmh: 4.5, color: '#f59e0b', unit: '분' },
 ]
 
-function calcDuration(distanceKm, kmh) {
-  return Math.ceil((distanceKm / kmh) * 60)
-}
-
-export function haversineKm(a, b) {
-  const R = 6371
-  const dLat = ((b.lat - a.lat) * Math.PI) / 180
-  const dLon = ((b.lng - a.lng) * Math.PI) / 180
-  const h =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((a.lat * Math.PI) / 180) *
-    Math.cos((b.lat * Math.PI) / 180) *
-    Math.sin(dLon / 2) ** 2
-  return R * 2 * Math.asin(Math.sqrt(h))
-}
+// 거리·시간 계산은 utils/routing.js 로 옮겼다 (OSRM 실경로 + 직선거리 폴백).
+export { haversineKm } from '../utils/routing.js'
 
 export const useStore = create(
   persist(
@@ -30,9 +18,16 @@ export const useStore = create(
       // ── 출발/도착 ──────────────────────────────────────────────
       origin:      null,   // { label, lat, lng }
       destination: null,
-      setOrigin:      (v) => set({ origin: v,      results: null }),
-      setDestination: (v) => set({ destination: v, results: null }),
-      swapPoints: () => set((s) => ({ origin: s.destination, destination: s.origin, results: null })),
+      // 출발/도착이 바뀌면 진행 중인 경로 조회를 무효화하고 '검색 중' 상태도 푼다.
+      // (조회가 최대 수 초 걸리므로, 그 사이 바꾸면 버튼이 계속 비활성화되던 결함 방지)
+      _cancelSearch: () => {
+        const { _calcTimer, _reqId } = get()
+        if (_calcTimer) clearTimeout(_calcTimer)
+        return { _calcTimer: null, _reqId: _reqId + 1, isSearching: false, results: null }
+      },
+      setOrigin:      (v) => set({ ...get()._cancelSearch(), origin: v }),
+      setDestination: (v) => set({ ...get()._cancelSearch(), destination: v }),
+      swapPoints: () => set((s) => ({ ...get()._cancelSearch(), origin: s.destination, destination: s.origin })),
 
       // ── 선택 교통수단 ──────────────────────────────────────────
       activeMode: 'transit',
@@ -43,23 +38,25 @@ export const useStore = create(
       isSearching: false,
 
       _calcTimer: null,
+      _reqId: 0,
 
       calcRoutes: () => {
-        const { origin, destination, _calcTimer } = get()
+        const { origin, destination, _calcTimer, _reqId } = get()
         if (_calcTimer) clearTimeout(_calcTimer)
         if (!origin || !destination) return
-        set({ isSearching: true })
-        const timer = setTimeout(() => {
-          const { origin: o, destination: d } = get()
-          // 타이머 대기 중 출발/도착지가 바뀌었으면 이 결과는 버림
-          if (o !== origin || d !== destination) return
-          const dist = haversineKm(origin, destination)
-          const results = MODES.map((m) => ({
-            ...m,
-            distanceKm: dist,
-            durationMin: calcDuration(dist, m.kmh),
-          }))
-          results.sort((a, b) => a.durationMin - b.durationMin)
+        const reqId = _reqId + 1
+        set({ isSearching: true, _reqId: reqId })
+        // 연타 시 마지막 요청만 서버에 보낸다(공개 OSRM 서버 부하·차단 방지).
+        const timer = setTimeout(async () => {
+          let results
+          try {
+            results = await computeRoutes(MODES, origin, destination)
+          } catch {
+            results = null
+          }
+          // 더 새 요청이 있거나(재검색) 출발/도착이 바뀌어 무효화됐으면 이 결과는 버린다.
+          // isSearching 은 새 요청 또는 _cancelSearch 가 이미 정리했다.
+          if (get()._reqId !== reqId) return
           set({ results, isSearching: false, _calcTimer: null })
         }, 600)
         set({ _calcTimer: timer })
@@ -91,7 +88,7 @@ export const useStore = create(
         set((s) => ({ favorites: s.favorites.filter((f) => f.id !== id) })),
 
       loadFavorite: (fav) =>
-        set({ origin: fav.origin, destination: fav.destination, results: null }),
+        set({ ...get()._cancelSearch(), origin: fav.origin, destination: fav.destination }),
 
       // ── UI 탭 ──────────────────────────────────────────────────
       tab: 'search',    // 'search' | 'favorites'

@@ -52,14 +52,20 @@ function FlyTo({ origin, destination }) {
 }
 
 export default function MapView({ onMapClick }) {
-  const { origin, destination, activeMode } = useStore()
+  const { origin, destination, activeMode, results } = useStore()
 
   const activeModeMeta = MODES.find((m) => m.id === activeMode) || MODES[0]
+  const activeResult = results?.find((r) => r.id === activeMode)
 
+  // 실경로(OSRM)가 있으면 도로를 따라 그리고, 없으면(검색 전·조회 실패) 직선을 그린다.
   const routePositions =
-    origin && destination
+    activeResult?.path?.length >= 2
+      ? activeResult.path
+      : origin && destination
       ? [[origin.lat, origin.lng], [destination.lat, destination.lng]]
       : null
+  // 직선은 실제 경로가 아니라는 것을 선 모양으로도 구분한다(점선·흐리게).
+  const isStraight = !activeResult || activeResult.source === 'straight'
 
   const defaultCenter = [37.5665, 126.978]  // 서울 기본값
 
@@ -101,9 +107,9 @@ export default function MapView({ onMapClick }) {
           positions={routePositions}
           pathOptions={{
             color: activeModeMeta.color,
-            weight: 4,
-            opacity: 0.8,
-            dashArray: activeMode === 'walk' ? '8 6' : activeMode === 'bike' ? '4 4' : null,
+            weight: isStraight ? 3 : 5,
+            opacity: isStraight ? 0.5 : 0.85,
+            dashArray: isStraight ? '2 10' : activeMode === 'walk' ? '8 6' : activeMode === 'bike' ? '4 4' : null,
           }}
         />
       )}
