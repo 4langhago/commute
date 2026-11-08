@@ -9,9 +9,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg'],
       manifest: {
-        name: '통근 경로 플래너',
-        short_name: '통근',
-        description: '경로를 계획하고 교통수단을 비교하세요. 오프라인에서도 작동합니다.',
+        name: '출퇴근 알리미',
+        short_name: '출퇴근',
+        description: '매일 정해진 시각에 알림을 받고, 탭 한 번으로 구글맵에서 실시간 출퇴근 시간을 확인하세요.',
         theme_color: '#4f46e5',
         background_color: '#f8fafc',
         display: 'standalone',
@@ -21,6 +21,8 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png}'],
+        globIgnores: ['sw-notify.js'],
+        importScripts: ['sw-notify.js'],
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/nominatim\.openstreetmap\.org\/.*/i,

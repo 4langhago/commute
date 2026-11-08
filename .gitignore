@@ -6,3 +6,4 @@ dist/
 proxy-app/
 .omc/
 .claude/
+.playwright-mcp/
