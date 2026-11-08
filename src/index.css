@@ -89,3 +89,6 @@ body {
 /* ── 결과 카드 ────────────────────────────────────────── */
 .result-card { transition: transform 0.15s, box-shadow 0.15s; }
 .result-card:active { transform: scale(0.98); }
+
+/* 지도 확대/축소 버튼이 상단 로고·버튼과 겹치지 않도록 아래로 */
+.leaflet-top.leaflet-left { margin-top: max(calc(var(--sat) + 60px), 64px); }

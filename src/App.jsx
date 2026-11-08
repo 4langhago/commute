@@ -1,68 +1,44 @@
 import React, { useState, Suspense, useEffect } from 'react'
-import { Navigation2, Bookmark, Bell, BellOff, MapPin, ChevronDown, Settings } from 'lucide-react'
-import { useStore, MODES, haversineKm } from './store/useStore'
+import { Navigation2, Bookmark, Bell, BellOff, MapPin, ChevronDown, Briefcase } from 'lucide-react'
+import { useStore } from './store/useStore'
 import RoutePanel from './components/RoutePanel'
 import FavoritesPanel from './components/FavoritesPanel'
-import NotificationSettings from './components/NotificationSettings'
+import CommutePanel from './components/CommutePanel'
+import LogPrompt from './components/LogPrompt'
 import BottomSheet, { SNAP } from './components/BottomSheet'
 import { reverseGeocode } from './utils/geocode'
 import toast from './utils/toast'
-import { startNotificationScheduler, stopNotificationScheduler } from './utils/notificationScheduler'
+import { startNotificationScheduler, stopNotificationScheduler, syncConfigForServiceWorker } from './utils/notificationScheduler'
 
 const MapView = React.lazy(() => import('./components/MapView'))
 
 const NAV = [
   { id: 'search',        icon: Navigation2, label: '경로' },
   { id: 'favorites',    icon: Bookmark,    label: '즐겨찾기' },
-  { id: 'notifications', icon: Settings,    label: '알림' },
+  { id: 'commute',      icon: Briefcase,   label: '출퇴근' },
 ]
 
 export default function App() {
   const {
     tab, setTab,
-    origin, destination,
     setOrigin, setDestination,
-    notifyEnabled, setNotifyEnabled,
     results, activeMode, favorites,
-    notificationSchedule,
+    commute, commuteLog,
   } = useStore()
 
   const [snap, setSnap]               = useState(SNAP.HALF)
   const [mapClickTarget, setMapClickTarget] = useState(null)
 
-  // 알림 스케줄러 시작/중지
+  // 알림 스케줄러는 스토어를 직접 읽으므로 한 번만 시작
   useEffect(() => {
-    if (notificationSchedule?.enabled) {
-      const getRouteData = () => {
-        if (notificationSchedule.favoriteId) {
-          const fav = favorites.find(f => f.id === notificationSchedule.favoriteId)
-          if (fav) {
-            const dist = haversineKm(fav.origin, fav.destination)
-            const results = MODES.map(m => ({
-              ...m,
-              distanceKm: dist,
-              durationMin: Math.ceil((dist / m.kmh) * 60),
-            }))
-            return {
-              origin: fav.origin,
-              destination: fav.destination,
-              activeMode: 'transit',
-              results,
-            }
-          }
-        }
-        if (origin && destination && results) {
-          return { origin, destination, activeMode, results }
-        }
-        return null
-      }
-      startNotificationScheduler(notificationSchedule, getRouteData)
-    } else {
-      stopNotificationScheduler()
-    }
-
+    startNotificationScheduler()
     return () => stopNotificationScheduler()
-  }, [notificationSchedule, favorites, origin, destination, results, activeMode])
+  }, [])
+
+  // 앱이 꺼져 있을 때 서비스워커가 쓸 알림 내용을 갱신
+  useEffect(() => {
+    syncConfigForServiceWorker(commute, commuteLog)
+  }, [commute, commuteLog])
 
   const handleMapClick = async (latlng) => {
     if (!mapClickTarget) return
@@ -101,7 +77,7 @@ export default function App() {
           {/* 앱 로고 */}
           <div className="glass flex items-center gap-2 px-3 py-2 rounded-2xl shadow-sm">
             <span className="text-lg">🚌</span>
-            <span className="text-sm font-bold text-slate-800">통근</span>
+            <span className="text-sm font-bold text-slate-800">출퇴근 알리미</span>
           </div>
 
           {/* 우측 액션 버튼들 */}
@@ -122,11 +98,11 @@ export default function App() {
               <MapPin className="w-4 h-4" style={{ color: mapClickTarget === 'dest' ? 'white' : '#ef4444' }} />
             </button>
             <button
-              onClick={() => { setTab('notifications'); if (snap === SNAP.COLLAPSED) setSnap(SNAP.HALF) }}
-              className={`touch-btn glass p-2.5 rounded-2xl shadow-sm ${notificationSchedule?.enabled ? 'bg-brand/10' : ''}`}
-              title="알림 설정"
+              onClick={() => { setTab('commute'); if (snap === SNAP.COLLAPSED) setSnap(SNAP.HALF) }}
+              className={`touch-btn glass p-2.5 rounded-2xl shadow-sm ${commute.enabled ? 'bg-brand/10' : ''}`}
+              title="출퇴근 알림 설정"
             >
-              {notificationSchedule?.enabled
+              {commute.enabled
                 ? <Bell className="w-4 h-4 text-brand" />
                 : <BellOff className="w-4 h-4 text-slate-400" />
               }
@@ -165,6 +141,9 @@ export default function App() {
         </div>
       )}
 
+      {/* ── 구글맵 확인 후 소요 시간 기록 ── */}
+      <LogPrompt />
+
       {/* ── 바텀 시트 ── */}
       <BottomSheet
         snap={snap}
@@ -201,7 +180,7 @@ export default function App() {
           ? <RoutePanel onSearchDone={() => setSnap(SNAP.FULL)} />
           : tab === 'favorites'
             ? <FavoritesPanel onLoad={() => setSnap(SNAP.HALF)} />
-            : <NotificationSettings />
+            : <CommutePanel />
         }
       </BottomSheet>
     </div>

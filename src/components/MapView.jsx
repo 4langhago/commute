@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react'
-import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet'
+import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap, ZoomControl } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png'
@@ -68,7 +68,7 @@ export default function MapView({ onMapClick }) {
       center={defaultCenter}
       zoom={12}
       style={{ width: '100%', height: '100%' }}
-      zoomControl={true}
+      zoomControl={false}
     >
       <TileLayer
         attribution='&copy; <a href="https://openstreetmap.org">OpenStreetMap</a>'
@@ -110,6 +110,7 @@ export default function MapView({ onMapClick }) {
 
       {/* 지도 클릭 핸들러 */}
       <MapClickHandler onMapClick={onMapClick} />
+      <ZoomControl position="topleft" />
     </MapContainer>
   )
 }

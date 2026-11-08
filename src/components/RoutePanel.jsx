@@ -1,8 +1,9 @@
 import React from 'react'
-import { ArrowRightLeft, Loader2, Navigation2, Bookmark, CheckCircle } from 'lucide-react'
+import { ArrowRightLeft, Loader2, Navigation2, Bookmark, CheckCircle, ExternalLink, Briefcase } from 'lucide-react'
 import { useStore, MODES } from '../store/useStore'
 import SearchInput from './SearchInput'
 import toast from '../utils/toast'
+import { openGoogleMaps } from '../utils/googleMaps'
 
 function ModeChip({ mode, active, onClick }) {
   return (
@@ -56,8 +57,9 @@ export default function RoutePanel({ onSearchDone }) {
     origin, destination, setOrigin, setDestination, swapPoints,
     activeMode, setActiveMode,
     results, isSearching, calcRoutes,
-    saveFavorite,
+    saveFavorite, updateCommute, setTab,
   } = useStore()
+  const activeLabel = MODES.find((m) => m.id === activeMode)?.label
 
   const handleSearch = () => {
     if (!origin || !destination) {
@@ -124,7 +126,20 @@ export default function RoutePanel({ onSearchDone }) {
               onSelect={() => setActiveMode(r.id)}
             />
           ))}
-          <p className="text-[11px] text-slate-400 text-center">직선거리 기준 예상 시간입니다</p>
+          <p className="text-[11px] text-slate-400 text-center">직선거리 기준 예상 시간입니다 · 실제 시간은 구글맵에서 확인하세요</p>
+          <button
+            onClick={() => openGoogleMaps(origin, destination, activeMode)}
+            className="touch-btn flex items-center justify-center gap-2 w-full py-3.5 rounded-2xl font-bold text-sm text-white"
+            style={{ background: '#1a73e8', boxShadow: '0 6px 20px #1a73e844' }}
+          >
+            구글맵에서 실시간 {activeLabel} 시간 보기 <ExternalLink className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => { updateCommute({ home: origin, work: destination }); setTab('commute'); toast('출퇴근 경로로 설정했어요 — 알림 시각을 정해 주세요', 'ok') }}
+            className="touch-btn flex items-center justify-center gap-1.5 w-full py-3 rounded-2xl border-2 border-slate-200 bg-white text-xs font-bold text-slate-700"
+          >
+            <Briefcase className="w-4 h-4 text-brand" /> 이 경로를 매일 출퇴근 알림으로 (출발=집, 도착=회사)
+          </button>
         </div>
       )}
     </div>
